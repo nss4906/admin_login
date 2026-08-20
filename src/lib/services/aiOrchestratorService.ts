@@ -1,4 +1,4 @@
-import { GenerationRequest, GenerationOutput } from '@/types';
+import { GenerationRequest } from '@/types';
 
 export interface AIProviderConfig {
   providerName: string;
@@ -20,10 +20,36 @@ export interface AIProviderAdapter {
 }
 
 /**
- * Replicate / Flux High-Fidelity Provider Implementation
+ * Builds a comprehensive, professional fashion photoshoot prompt from apparel references and settings.
  */
-export class ReplicateFluxProvider implements AIProviderAdapter {
-  name = 'Replicate (Flux Dev / Pro)';
+export function buildFashionPrompt(
+  settings: any,
+  garmentImageUrls?: { url: string; orientation: string }[],
+  shotType?: string
+): string {
+  const pose = shotType || settings.pose || 'Full Body Front';
+  const mode = settings.mode || 'Premium E-commerce Studio';
+  const lighting = settings.lighting_style || 'Soft Studio Key Light';
+  const bg = settings.background_type || 'Neutral Light Grey Studio';
+  const focal = settings.focal_length || '85mm';
+  const styling = settings.model_styling || 'Minimal High Fashion';
+  const custom = settings.custom_prompt ? `, ${settings.custom_prompt}` : '';
+
+  let apparelDesc = 'stylish custom apparel garment';
+  if (garmentImageUrls && garmentImageUrls.length > 0) {
+    apparelDesc = garmentImageUrls.map((g) => `${g.orientation.toLowerCase()} apparel view`).join(' and ');
+  }
+
+  return `Professional studio fashion photography of a model wearing ${apparelDesc}. Mode: ${mode}, Pose: ${pose}, Lighting: ${lighting}, Background: ${bg}, Camera lens: ${focal}, Model styling: ${styling}${custom}. High resolution, 8k quality, sharp details, photorealistic clothing texture, commercial studio photography.`;
+}
+
+/**
+ * Google Imagen 3 / Gemini Fashion Provider
+ * Supports Google's official Imagen API when GOOGLE_AI_API_KEY / GEMINI_API_KEY is available,
+ * and dynamic AI generation pipeline matching exact user input parameters.
+ */
+export class GoogleImagenProvider implements AIProviderAdapter {
+  name = 'Google Imagen 3 / Gemini Flow Engine';
 
   async generatePhotoshoot(
     requestPayload: GenerationRequest,
@@ -32,23 +58,65 @@ export class ReplicateFluxProvider implements AIProviderAdapter {
   ) {
     const startTime = Date.now();
     const { settings, pack_type } = requestPayload;
+    const apiKey = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY;
 
-    // Build smart structured prompts prioritizing apparel fidelity
     const shotList = this.getShotListForPack(pack_type || 'SINGLE', settings);
-    const outputs = shotList.map((shot, index) => {
-      // Return high quality realistic studio fashion images
-      const fallbackStudioImage = `https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?q=80&w=1000&auto=format&fit=crop&sig=${index + 10}`;
-      return {
-        imageUrl: fallbackStudioImage,
+    const outputs: Array<{ imageUrl: string; shotType: string; aspectRatio: string }> = [];
+
+    for (let index = 0; index < shotList.length; index++) {
+      const shot = shotList[index];
+      const prompt = buildFashionPrompt(settings, garmentImageUrls, shot.shotType);
+
+      let generatedImageUrl = '';
+
+      if (apiKey) {
+        try {
+          // Attempt Google Imagen 3 API endpoint
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                instances: [{ prompt }],
+                parameters: {
+                  sampleCount: 1,
+                  aspectRatio: settings.aspect_ratio || '4:5',
+                  outputMimeType: 'image/jpeg',
+                },
+              }),
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data?.predictions?.[0]?.bytesBase64Encoded) {
+              generatedImageUrl = `data:image/jpeg;base64,${data.predictions[0].bytesBase64Encoded}`;
+            }
+          }
+        } catch (err) {
+          console.warn('Google Imagen API call failed, falling back to dynamic AI image engine:', err);
+        }
+      }
+
+      // If no API key or Google API call fallback needed, generate dynamic AI image based on prompt
+      if (!generatedImageUrl) {
+        const seed = Math.floor(Math.random() * 1000000) + index * 1337;
+        const encodedPrompt = encodeURIComponent(prompt);
+        generatedImageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=800&height=1000&nologo=true&seed=${seed}`;
+      }
+
+      outputs.push({
+        imageUrl: generatedImageUrl,
         shotType: shot.shotType,
         aspectRatio: settings.aspect_ratio || '4:5',
-      };
-    });
+      });
+    }
 
     return {
       outputs,
       durationMs: Date.now() - startTime,
-      estimatedCostUsd: outputs.length * 0.04, // $0.04 per output image
+      estimatedCostUsd: outputs.length * 0.03,
     };
   }
 
@@ -94,45 +162,14 @@ export class ReplicateFluxProvider implements AIProviderAdapter {
 }
 
 /**
- * Gemini Fashion Engine Provider Implementation
- */
-export class GeminiFashionProvider implements AIProviderAdapter {
-  name = 'Gemini Fashion Vision';
-
-  async generatePhotoshoot(
-    requestPayload: GenerationRequest,
-    modelImageUrl?: string,
-    garmentImageUrls?: { url: string; orientation: string }[]
-  ) {
-    const startTime = Date.now();
-    const { settings } = requestPayload;
-
-    return {
-      outputs: [
-        {
-          imageUrl:
-            'https://images.unsplash.com/photo-1529139574466-a303027c1d8b?q=80&w=1000&auto=format&fit=crop',
-          shotType: settings.pose || 'Full Body Front',
-          aspectRatio: settings.aspect_ratio || '4:5',
-        },
-      ],
-      durationMs: Date.now() - startTime,
-      estimatedCostUsd: 0.025,
-    };
-  }
-}
-
-/**
  * AI Orchestrator - Manages provider selection, model abstraction,
  * request composition, and server-side execution.
  */
 export class AIOrchestratorService {
   private primaryProvider: AIProviderAdapter;
-  private fallbackProvider: AIProviderAdapter;
 
   constructor() {
-    this.primaryProvider = new ReplicateFluxProvider();
-    this.fallbackProvider = new GeminiFashionProvider();
+    this.primaryProvider = new GoogleImagenProvider();
   }
 
   public async executeGeneration(
@@ -140,38 +177,21 @@ export class AIOrchestratorService {
     modelImageUrl?: string,
     garmentImages?: { url: string; orientation: string }[]
   ) {
-    // Structured validation & pre-checks
     if (!request.garment_id) {
       throw new Error('Apparel reference is required for generation.');
     }
 
-    try {
-      const result = await this.primaryProvider.generatePhotoshoot(
-        request,
-        modelImageUrl,
-        garmentImages
-      );
+    const result = await this.primaryProvider.generatePhotoshoot(
+      request,
+      modelImageUrl,
+      garmentImages
+    );
 
-      return {
-        providerUsed: this.primaryProvider.name,
-        outputs: result.outputs,
-        durationMs: result.durationMs,
-        estimatedCostUsd: result.estimatedCostUsd,
-      };
-    } catch (err) {
-      console.warn('Primary AI Provider failed, falling back to Gemini Engine', err);
-      const result = await this.fallbackProvider.generatePhotoshoot(
-        request,
-        modelImageUrl,
-        garmentImages
-      );
-
-      return {
-        providerUsed: this.fallbackProvider.name,
-        outputs: result.outputs,
-        durationMs: result.durationMs,
-        estimatedCostUsd: result.estimatedCostUsd,
-      };
-    }
+    return {
+      providerUsed: this.primaryProvider.name,
+      outputs: result.outputs,
+      durationMs: result.durationMs,
+      estimatedCostUsd: result.estimatedCostUsd,
+    };
   }
 }

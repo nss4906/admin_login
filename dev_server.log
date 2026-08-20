@@ -6,14 +6,14 @@
   - Local:        http://localhost:3000
 
  ✓ Starting...
- ✓ Ready in 1742ms
+ ✓ Ready in 2.5s
  ○ Compiling / ...
- ✓ Compiled / in 4.7s (539 modules)
- HEAD / 200 in 5151ms
- ✓ Compiled in 739ms (277 modules)
- GET / 200 in 91ms
+ ✓ Compiled / in 5.7s (539 modules)
+ HEAD / 200 in 5993ms
+ ✓ Compiled in 523ms (277 modules)
+ GET / 200 in 55ms
  ○ Compiling /studio ...
- ✓ Compiled /studio in 1219ms (581 modules)
- GET /studio 200 in 1402ms
- ✓ Compiled /mockup in 275ms (589 modules)
- GET /mockup 200 in 378ms
+ ✓ Compiled /studio in 673ms (583 modules)
+ GET /studio 200 in 819ms
+ ✓ Compiled /mockup in 257ms (591 modules)
+ GET /mockup 200 in 322ms

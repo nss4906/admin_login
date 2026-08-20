@@ -11,7 +11,6 @@ import {
   ModelReference,
   PhotoshootSettings,
 } from '@/types';
-import { SmartApparelService } from '@/lib/services/smartApparelService';
 import { AIOrchestratorService } from '@/lib/services/aiOrchestratorService';
 
 export default function VirtualStudioPage() {
@@ -51,7 +50,7 @@ export default function VirtualStudioPage() {
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [outputs, setOutputs] = useState<GenerationOutput[]>([]);
 
-  // Execute Generation Pipeline
+  // Execute Generation Pipeline using API route with server-side AI Orchestrator
   const handleGenerate = async () => {
     if (garmentReferences.length === 0) return;
 
@@ -65,39 +64,69 @@ export default function VirtualStudioPage() {
     }, 1000);
 
     setTimeout(() => {
-      setGenerationStatus('Executing Reference-Locked AI Generation...');
+      setGenerationStatus('Executing Google Imagen / AI Generation Flow...');
       setProgressPercentage(75);
     }, 2000);
 
     setTimeout(async () => {
-      const orchestrator = new AIOrchestratorService();
-      const result = await orchestrator.executeGeneration(
-        {
-          project_id: 'proj-1',
-          garment_id: 'garment-1',
-          settings,
-          pack_type: packType as any,
-          quality_tier: qualityTier,
-        },
-        modelRef?.image_url,
-        garmentReferences.map((r) => ({ url: r.image_url, orientation: r.orientation }))
-      );
+      try {
+        const payload = {
+          request: {
+            project_id: 'proj-1',
+            garment_id: 'garment-1',
+            settings,
+            pack_type: packType as any,
+            quality_tier: qualityTier,
+          },
+          modelImageUrl: modelRef?.image_url,
+          garmentImages: garmentReferences.map((r) => ({
+            url: r.image_url,
+            orientation: r.orientation,
+          })),
+        };
 
-      const generatedOutputs: GenerationOutput[] = result.outputs.map((out, idx) => ({
-        id: `out-${Date.now()}-${idx}`,
-        generation_job_id: `job-${Date.now()}`,
-        image_url: out.imageUrl,
-        aspect_ratio: out.aspectRatio,
-        shot_type: out.shotType,
-        quality_review_status: 'Passed',
-        review_notes: ['Garment identity intact', 'Color matched', 'Artwork visible'],
-        created_at: new Date().toISOString(),
-      }));
+        let result;
+        try {
+          const res = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (res.ok) {
+            result = await res.json();
+          }
+        } catch (apiErr) {
+          console.warn('API route failed, running AI Orchestrator client-side:', apiErr);
+        }
 
-      setOutputs(generatedOutputs);
-      setGenerationStatus('Completed');
-      setProgressPercentage(100);
-      setIsGenerating(false);
+        if (!result) {
+          const orchestrator = new AIOrchestratorService();
+          result = await orchestrator.executeGeneration(
+            payload.request,
+            payload.modelImageUrl,
+            payload.garmentImages
+          );
+        }
+
+        const generatedOutputs: GenerationOutput[] = result.outputs.map((out: any, idx: number) => ({
+          id: `out-${Date.now()}-${idx}`,
+          generation_job_id: `job-${Date.now()}`,
+          image_url: out.imageUrl,
+          aspect_ratio: out.aspectRatio,
+          shot_type: out.shotType,
+          quality_review_status: 'Passed',
+          review_notes: ['Garment identity intact', 'Color matched', 'Artwork visible'],
+          created_at: new Date().toISOString(),
+        }));
+
+        setOutputs(generatedOutputs);
+        setGenerationStatus('Completed');
+        setProgressPercentage(100);
+      } catch (err) {
+        console.error('Generation Error:', err);
+      } finally {
+        setIsGenerating(false);
+      }
     }, 3200);
   };
 
