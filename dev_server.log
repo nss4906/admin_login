@@ -1,0 +1,19 @@
+
+> ai-apparel-production-studio@1.0.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+ ✓ Ready in 1742ms
+ ○ Compiling / ...
+ ✓ Compiled / in 4.7s (539 modules)
+ HEAD / 200 in 5151ms
+ ✓ Compiled in 739ms (277 modules)
+ GET / 200 in 91ms
+ ○ Compiling /studio ...
+ ✓ Compiled /studio in 1219ms (581 modules)
+ GET /studio 200 in 1402ms
+ ✓ Compiled /mockup in 275ms (589 modules)
+ GET /mockup 200 in 378ms
