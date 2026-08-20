@@ -56,28 +56,42 @@ export function VirtualStudioLeftPanel({
   const garmentInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
 
+  // Reads File into Data URL (Base64) so it can be safely posted to server
+  const readFileAsDataURL = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (err) => reject(err);
+      reader.readAsDataURL(file);
+    });
+  };
+
   // Real Local File Upload Handler for Garments
   const handleGarmentFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     setIsAnalyzing(true);
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const imageUrl = URL.createObjectURL(file);
-      const analysis = await SmartApparelService.analyzeGarmentImage(imageUrl, file.name);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const imageUrl = await readFileAsDataURL(file);
+        const analysis = await SmartApparelService.analyzeGarmentImage(imageUrl, file.name);
 
-      const newRef: GarmentReference = {
-        id: `garment-ref-${Date.now()}-${i}`,
-        garment_id: 'garment-1',
-        image_url: imageUrl,
-        orientation: analysis.orientation,
-        orientation_confidence: analysis.orientation_confidence,
-        analysis,
-        created_at: new Date().toISOString(),
-      };
+        const newRef: GarmentReference = {
+          id: `garment-ref-${Date.now()}-${i}`,
+          garment_id: 'garment-1',
+          image_url: imageUrl,
+          orientation: analysis.orientation,
+          orientation_confidence: analysis.orientation_confidence,
+          analysis,
+          created_at: new Date().toISOString(),
+        };
 
-      setGarmentReferences((prev) => [...prev, newRef]);
+        setGarmentReferences((prev) => [...prev, newRef]);
+      }
+    } catch (err) {
+      console.error('Error reading garment file:', err);
     }
     setIsAnalyzing(false);
     if (e.target) e.target.value = '';
@@ -89,19 +103,23 @@ export function VirtualStudioLeftPanel({
     if (!files || files.length === 0) return;
 
     setIsAnalyzing(true);
-    const file = files[0];
-    const imageUrl = URL.createObjectURL(file);
-    const analysis = await SmartApparelService.analyzeModelImage(imageUrl, file.name);
+    try {
+      const file = files[0];
+      const imageUrl = await readFileAsDataURL(file);
+      const analysis = await SmartApparelService.analyzeModelImage(imageUrl, file.name);
 
-    setModelRef({
-      id: `model-${Date.now()}`,
-      project_id: 'proj-1',
-      image_url: imageUrl,
-      name: file.name.replace(/\.[^/.]+$/, ''),
-      analysis,
-      is_active: true,
-      created_at: new Date().toISOString(),
-    });
+      setModelRef({
+        id: `model-${Date.now()}`,
+        project_id: 'proj-1',
+        image_url: imageUrl,
+        name: file.name.replace(/\.[^/.]+$/, ''),
+        analysis,
+        is_active: true,
+        created_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Error reading model file:', err);
+    }
 
     setIsAnalyzing(false);
     if (e.target) e.target.value = '';

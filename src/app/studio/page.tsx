@@ -11,12 +11,38 @@ import {
   ModelReference,
   PhotoshootSettings,
 } from '@/types';
-import { SmartApparelService } from '@/lib/services/smartApparelService';
 import { AIOrchestratorService } from '@/lib/services/aiOrchestratorService';
 
 export default function VirtualStudioPage() {
   const [modelRef, setModelRef] = useState<ModelReference | null>(null);
-  const [garmentReferences, setGarmentReferences] = useState<GarmentReference[]>([]);
+  const [garmentReferences, setGarmentReferences] = useState<GarmentReference[]>([
+    {
+      id: 'default-garment-1',
+      garment_id: 'garment-1',
+      image_url: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800&auto=format&fit=crop&q=80',
+      orientation: 'FRONT',
+      orientation_confidence: 0.98,
+      analysis: {
+        garment_category: 'T-shirt',
+        orientation: 'FRONT',
+        orientation_confidence: 0.98,
+        primary_color: 'Black',
+        secondary_colors: ['White'],
+        graphic_detected: true,
+        graphic_location: 'Front Center',
+        has_typography: true,
+        has_logo: true,
+        pattern: 'Graphic Print',
+        fit: 'Oversized',
+        sleeve_type: 'Short Sleeve',
+        neck_type: 'Crew Neck',
+        fabric_appearance: 'Heavyweight Cotton 240 GSM',
+        reference_quality: 'Excellent',
+        quality_issues: [],
+      },
+      created_at: new Date().toISOString(),
+    },
+  ]);
   const [garmentIdentityLock, setGarmentIdentityLock] = useState(true);
   const [modelIdentityLock, setModelIdentityLock] = useState(true);
   const [smartExtraction, setSmartExtraction] = useState(false);
@@ -51,7 +77,7 @@ export default function VirtualStudioPage() {
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [outputs, setOutputs] = useState<GenerationOutput[]>([]);
 
-  // Execute Generation Pipeline
+  // Execute Generation Pipeline using API route with server-side AI Orchestrator
   const handleGenerate = async () => {
     if (garmentReferences.length === 0) return;
 
@@ -65,39 +91,61 @@ export default function VirtualStudioPage() {
     }, 1000);
 
     setTimeout(() => {
-      setGenerationStatus('Executing Reference-Locked AI Generation...');
+      setGenerationStatus('Executing Google Imagen / AI Generation Flow...');
       setProgressPercentage(75);
     }, 2000);
 
     setTimeout(async () => {
-      const orchestrator = new AIOrchestratorService();
-      const result = await orchestrator.executeGeneration(
-        {
-          project_id: 'proj-1',
-          garment_id: 'garment-1',
-          settings,
-          pack_type: packType as any,
-          quality_tier: qualityTier,
-        },
-        modelRef?.image_url,
-        garmentReferences.map((r) => ({ url: r.image_url, orientation: r.orientation }))
-      );
+      try {
+        const payload = {
+          request: {
+            project_id: 'proj-1',
+            garment_id: 'garment-1',
+            settings,
+            pack_type: packType as any,
+            quality_tier: qualityTier,
+          },
+          modelImageUrl: modelRef?.image_url,
+          garmentImages: garmentReferences.map((r) => ({
+            url: r.image_url,
+            orientation: r.orientation,
+          })),
+        };
 
-      const generatedOutputs: GenerationOutput[] = result.outputs.map((out, idx) => ({
-        id: `out-${Date.now()}-${idx}`,
-        generation_job_id: `job-${Date.now()}`,
-        image_url: out.imageUrl,
-        aspect_ratio: out.aspectRatio,
-        shot_type: out.shotType,
-        quality_review_status: 'Passed',
-        review_notes: ['Garment identity intact', 'Color matched', 'Artwork visible'],
-        created_at: new Date().toISOString(),
-      }));
+        console.log('[Studio] Sending generation payload to /api/generate...');
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
 
-      setOutputs(generatedOutputs);
-      setGenerationStatus('Completed');
-      setProgressPercentage(100);
-      setIsGenerating(false);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Server returned status ${res.status}`);
+        }
+
+        const result = await res.json();
+        console.log('[Studio] Received generation result from server:', result);
+
+        const generatedOutputs: GenerationOutput[] = result.outputs.map((out: any, idx: number) => ({
+          id: `out-${Date.now()}-${idx}`,
+          generation_job_id: `job-${Date.now()}`,
+          image_url: out.imageUrl,
+          aspect_ratio: out.aspectRatio,
+          shot_type: out.shotType,
+          quality_review_status: 'Passed',
+          review_notes: ['Garment identity intact', 'Color matched', 'Artwork visible'],
+          created_at: new Date().toISOString(),
+        }));
+
+        setOutputs(generatedOutputs);
+        setGenerationStatus('Completed');
+        setProgressPercentage(100);
+      } catch (err) {
+        console.error('Generation Error:', err);
+      } finally {
+        setIsGenerating(false);
+      }
     }, 3200);
   };
 
