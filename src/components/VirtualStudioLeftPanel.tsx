@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   User,
   Shirt,
@@ -53,49 +53,58 @@ export function VirtualStudioLeftPanel({
   const [activeTab, setActiveTab] = useState<'model' | 'apparel'>('apparel');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  // Simulated Model Upload Handler
-  const handleModelUpload = async () => {
+  const garmentInputRef = useRef<HTMLInputElement>(null);
+  const modelInputRef = useRef<HTMLInputElement>(null);
+
+  // Real Local File Upload Handler for Garments
+  const handleGarmentFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
     setIsAnalyzing(true);
-    const mockUrl = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=800&auto=format&fit=crop';
-    const analysis = await SmartApparelService.analyzeModelImage(mockUrl, 'studio_model.jpg');
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const imageUrl = URL.createObjectURL(file);
+      const analysis = await SmartApparelService.analyzeGarmentImage(imageUrl, file.name);
+
+      const newRef: GarmentReference = {
+        id: `garment-ref-${Date.now()}-${i}`,
+        garment_id: 'garment-1',
+        image_url: imageUrl,
+        orientation: analysis.orientation,
+        orientation_confidence: analysis.orientation_confidence,
+        analysis,
+        created_at: new Date().toISOString(),
+      };
+
+      setGarmentReferences((prev) => [...prev, newRef]);
+    }
+    setIsAnalyzing(false);
+    if (e.target) e.target.value = '';
+  };
+
+  // Real Local File Upload Handler for Models
+  const handleModelFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsAnalyzing(true);
+    const file = files[0];
+    const imageUrl = URL.createObjectURL(file);
+    const analysis = await SmartApparelService.analyzeModelImage(imageUrl, file.name);
 
     setModelRef({
-      id: 'model-1',
+      id: `model-${Date.now()}`,
       project_id: 'proj-1',
-      image_url: mockUrl,
-      name: 'Studio Female Model A',
+      image_url: imageUrl,
+      name: file.name.replace(/\.[^/.]+$/, ''),
       analysis,
       is_active: true,
       created_at: new Date().toISOString(),
     });
+
     setIsAnalyzing(false);
-  };
-
-  // Simulated Garment Reference Upload Handler
-  const handleGarmentUpload = async (viewHint: string = 'FRONT') => {
-    setIsAnalyzing(true);
-    let mockUrl = 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?q=80&w=800&auto=format&fit=crop';
-
-    if (viewHint === 'BACK') {
-      mockUrl = 'https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?q=80&w=800&auto=format&fit=crop';
-    } else if (viewHint === 'DETAIL') {
-      mockUrl = 'https://images.unsplash.com/photo-1529139574466-a303027c1d8b?q=80&w=800&auto=format&fit=crop';
-    }
-
-    const analysis = await SmartApparelService.analyzeGarmentImage(mockUrl, `${viewHint.toLowerCase()}_tshirt.jpg`);
-
-    const newRef: GarmentReference = {
-      id: `garment-ref-${Date.now()}`,
-      garment_id: 'garment-1',
-      image_url: mockUrl,
-      orientation: viewHint as GarmentOrientation,
-      orientation_confidence: 0.96,
-      analysis,
-      created_at: new Date().toISOString(),
-    };
-
-    setGarmentReferences((prev) => [...prev, newRef]);
-    setIsAnalyzing(false);
+    if (e.target) e.target.value = '';
   };
 
   const handleOrientationChange = (refId: string, newOrientation: GarmentOrientation) => {
@@ -118,6 +127,23 @@ export function VirtualStudioLeftPanel({
 
   return (
     <aside className="w-full lg:w-[340px] xl:w-[360px] bg-panel border-r border-panel-border flex flex-col h-full overflow-y-auto">
+      {/* Hidden File Inputs */}
+      <input
+        type="file"
+        ref={garmentInputRef}
+        onChange={handleGarmentFileSelect}
+        accept="image/png, image/jpeg, image/webp"
+        multiple
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={modelInputRef}
+        onChange={handleModelFileSelect}
+        accept="image/png, image/jpeg, image/webp"
+        className="hidden"
+      />
+
       {/* Tab Selector Header */}
       <div className="p-3 border-b border-panel-border bg-[#090a0f]/50 flex gap-2">
         <button
@@ -159,19 +185,19 @@ export function VirtualStudioLeftPanel({
                 </span>
               </div>
               <p className="text-[11px] text-gray-400 mb-3">
-                Upload images of the same garment. The system detects FRONT, BACK, SIDE & DETAIL views automatically.
+                Upload your local clothing images (Front, Back, Detail views). The AI detects views automatically.
               </p>
 
               {/* Upload Dropzone */}
               <div
-                onClick={() => handleGarmentUpload(garmentReferences.some(r => r.orientation === 'FRONT') ? 'BACK' : 'FRONT')}
+                onClick={() => garmentInputRef.current?.click()}
                 className="border-2 border-dashed border-panel-border hover:border-brand-500 rounded-xl p-4 text-center cursor-pointer bg-[#090a0f]/40 transition-colors group"
               >
                 <div className="w-9 h-9 rounded-full bg-purple-950/80 border border-purple-800/60 flex items-center justify-center mx-auto text-purple-400 mb-2 group-hover:scale-110 transition-transform">
                   <Upload className="w-4 h-4" />
                 </div>
-                <span className="text-xs font-bold text-white block">Upload Apparel Image</span>
-                <span className="text-[10px] text-gray-400 block mt-0.5">JPG, PNG, WEBP up to 25MB</span>
+                <span className="text-xs font-bold text-white block">Click to Upload Local Apparel Images</span>
+                <span className="text-[10px] text-gray-400 block mt-0.5">Supports JPG, PNG, WEBP files</span>
               </div>
             </div>
 
@@ -181,10 +207,10 @@ export function VirtualStudioLeftPanel({
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-gray-300">Grouped Garment Views</span>
                   <button
-                    onClick={() => handleGarmentUpload('DETAIL')}
+                    onClick={() => garmentInputRef.current?.click()}
                     className="text-[11px] text-purple-400 hover:underline flex items-center gap-1"
                   >
-                    <Plus className="w-3 h-3" /> Add Detail View
+                    <Plus className="w-3 h-3" /> Add More Views
                   </button>
                 </div>
 
@@ -257,7 +283,7 @@ export function VirtualStudioLeftPanel({
                 <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <strong className="block text-amber-300">Product Truth System</strong>
-                  Back reference is missing. Requesting back shots will use AI-inferred design.
+                  Back reference missing. AI will infer back design if requested.
                 </div>
               </div>
             )}
@@ -293,7 +319,7 @@ export function VirtualStudioLeftPanel({
               <div className="flex items-center justify-between p-3 bg-panel-light rounded-xl border border-panel-border">
                 <div>
                   <span className="text-xs font-bold text-white block">Smart Garment Extraction</span>
-                  <span className="text-[10px] text-gray-400 block">Isolates clothing silhouette from background</span>
+                  <span className="text-[10px] text-gray-400 block">Isolates clothing silhouette</span>
                 </div>
                 <button
                   onClick={() => setSmartExtraction(!smartExtraction)}
@@ -320,19 +346,19 @@ export function VirtualStudioLeftPanel({
                 Model Reference
               </span>
               <p className="text-[11px] text-gray-400 mb-3">
-                Upload a model image to preserve facial identity, hairstyle, posture, and physique across shots.
+                Upload a model photo from your computer to preserve model facial identity & physique.
               </p>
 
               {/* Model Upload Box */}
               {!modelRef ? (
                 <div
-                  onClick={handleModelUpload}
+                  onClick={() => modelInputRef.current?.click()}
                   className="border-2 border-dashed border-panel-border hover:border-brand-500 rounded-xl p-6 text-center cursor-pointer bg-[#090a0f]/40 transition-colors group"
                 >
                   <div className="w-10 h-10 rounded-full bg-purple-950/80 border border-purple-800/60 flex items-center justify-center mx-auto text-purple-400 mb-2 group-hover:scale-110 transition-transform">
                     <User className="w-5 h-5" />
                   </div>
-                  <span className="text-xs font-bold text-white block">Upload Model Photo</span>
+                  <span className="text-xs font-bold text-white block">Click to Upload Local Model Photo</span>
                   <span className="text-[10px] text-gray-400 block mt-0.5">Preserves model consistency</span>
                 </div>
               ) : (
