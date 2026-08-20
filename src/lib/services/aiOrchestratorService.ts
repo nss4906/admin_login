@@ -69,14 +69,25 @@ export class GoogleImagenProvider implements AIProviderAdapter {
 
       let generatedImageUrl = '';
 
+      console.log(`[GoogleImagenProvider] Shot ${index + 1}: API key state =`, apiKey ? `PRESENT (starts with ${apiKey.substring(0, 4)}...)` : 'MISSING');
+
       if (apiKey) {
         try {
-          // Attempt Google Imagen 3 API endpoint
-          const response = await fetch(
+          console.log(`[GoogleImagenProvider] Calling Google Imagen API with prompt: "${prompt.substring(0, 80)}..."`);
+
+          const endpointsToTry = [
             `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
-            {
+            `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-fast-generate-001:predict?key=${apiKey}`,
+          ];
+
+          for (const endpoint of endpointsToTry) {
+            console.log(`[GoogleImagenProvider] Trying endpoint: ${endpoint.split('?')[0]}`);
+            const response = await fetch(endpoint, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': apiKey,
+              },
               body: JSON.stringify({
                 instances: [{ prompt }],
                 parameters: {
@@ -85,18 +96,29 @@ export class GoogleImagenProvider implements AIProviderAdapter {
                   outputMimeType: 'image/jpeg',
                 },
               }),
-            }
-          );
+            });
 
-          if (response.ok) {
-            const data = await response.json();
-            if (data?.predictions?.[0]?.bytesBase64Encoded) {
-              generatedImageUrl = `data:image/jpeg;base64,${data.predictions[0].bytesBase64Encoded}`;
+            console.log(`[GoogleImagenProvider] Response status: ${response.status} ${response.statusText}`);
+
+            if (response.ok) {
+              const data = await response.json();
+              if (data?.predictions?.[0]?.bytesBase64Encoded) {
+                generatedImageUrl = `data:image/jpeg;base64,${data.predictions[0].bytesBase64Encoded}`;
+                console.log('[GoogleImagenProvider] Successfully generated image from Google Imagen API!');
+                break;
+              } else {
+                console.warn('[GoogleImagenProvider] Response OK but predictions field missing/empty:', JSON.stringify(data));
+              }
+            } else {
+              const errorText = await response.text();
+              console.error(`[GoogleImagenProvider] Google Imagen API Error (${response.status}):`, errorText);
             }
           }
         } catch (err) {
-          console.warn('Google Imagen API call failed, falling back to dynamic AI image engine:', err);
+          console.error('[GoogleImagenProvider] Google Imagen API network/execution error:', err);
         }
+      } else {
+        console.warn('[GoogleImagenProvider] GOOGLE_AI_API_KEY or GEMINI_API_KEY is not set in environment variables.');
       }
 
       // If no API key or Google API call fallback needed, generate dynamic AI image based on prompt

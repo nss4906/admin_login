@@ -15,7 +15,34 @@ import { AIOrchestratorService } from '@/lib/services/aiOrchestratorService';
 
 export default function VirtualStudioPage() {
   const [modelRef, setModelRef] = useState<ModelReference | null>(null);
-  const [garmentReferences, setGarmentReferences] = useState<GarmentReference[]>([]);
+  const [garmentReferences, setGarmentReferences] = useState<GarmentReference[]>([
+    {
+      id: 'default-garment-1',
+      garment_id: 'garment-1',
+      image_url: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800&auto=format&fit=crop&q=80',
+      orientation: 'FRONT',
+      orientation_confidence: 0.98,
+      analysis: {
+        garment_category: 'T-shirt',
+        orientation: 'FRONT',
+        orientation_confidence: 0.98,
+        primary_color: 'Black',
+        secondary_colors: ['White'],
+        graphic_detected: true,
+        graphic_location: 'Front Center',
+        has_typography: true,
+        has_logo: true,
+        pattern: 'Graphic Print',
+        fit: 'Oversized',
+        sleeve_type: 'Short Sleeve',
+        neck_type: 'Crew Neck',
+        fabric_appearance: 'Heavyweight Cotton 240 GSM',
+        reference_quality: 'Excellent',
+        quality_issues: [],
+      },
+      created_at: new Date().toISOString(),
+    },
+  ]);
   const [garmentIdentityLock, setGarmentIdentityLock] = useState(true);
   const [modelIdentityLock, setModelIdentityLock] = useState(true);
   const [smartExtraction, setSmartExtraction] = useState(false);
@@ -85,28 +112,20 @@ export default function VirtualStudioPage() {
           })),
         };
 
-        let result;
-        try {
-          const res = await fetch('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          if (res.ok) {
-            result = await res.json();
-          }
-        } catch (apiErr) {
-          console.warn('API route failed, running AI Orchestrator client-side:', apiErr);
+        console.log('[Studio] Sending generation payload to /api/generate...');
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Server returned status ${res.status}`);
         }
 
-        if (!result) {
-          const orchestrator = new AIOrchestratorService();
-          result = await orchestrator.executeGeneration(
-            payload.request,
-            payload.modelImageUrl,
-            payload.garmentImages
-          );
-        }
+        const result = await res.json();
+        console.log('[Studio] Received generation result from server:', result);
 
         const generatedOutputs: GenerationOutput[] = result.outputs.map((out: any, idx: number) => ({
           id: `out-${Date.now()}-${idx}`,
