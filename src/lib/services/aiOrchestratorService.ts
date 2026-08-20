@@ -25,7 +25,8 @@ export interface AIProviderAdapter {
 export function buildFashionPrompt(
   settings: any,
   garmentImageUrls?: { url: string; orientation: string }[],
-  shotType?: string
+  shotType?: string,
+  modelGender?: 'male' | 'female' | 'unisex'
 ): string {
   const pose = shotType || settings.pose || 'Full Body Front';
   const mode = settings.mode || 'Premium E-commerce Studio';
@@ -35,12 +36,15 @@ export function buildFashionPrompt(
   const styling = settings.model_styling || 'Minimal High Fashion';
   const custom = settings.custom_prompt ? `, ${settings.custom_prompt}` : '';
 
+  const modelDesc = modelGender === 'male' ? 'male fashion model' : modelGender === 'female' ? 'female fashion model' : 'fashion model';
+
   let apparelDesc = 'stylish custom apparel garment';
   if (garmentImageUrls && garmentImageUrls.length > 0) {
     apparelDesc = garmentImageUrls.map((g) => `${g.orientation.toLowerCase()} apparel view`).join(' and ');
   }
 
-  return `Professional studio fashion photography of a model wearing ${apparelDesc}. Mode: ${mode}, Pose: ${pose}, Lighting: ${lighting}, Background: ${bg}, Camera lens: ${focal}, Model styling: ${styling}${custom}. High resolution, 8k quality, sharp details, photorealistic clothing texture, commercial studio photography.`;
+  const adjective = modelGender === 'female' ? 'stunning professional' : 'handsome professional';
+  return `Professional studio fashion photography of a ${adjective} ${modelDesc} wearing ${apparelDesc}. Mode: ${mode}, Pose: ${pose}, Lighting: ${lighting}, Background: ${bg}, Camera lens: ${focal}, Model styling: ${styling}${custom}. High resolution, 8k quality, sharp details, photorealistic clothing texture, commercial studio photography.`;
 }
 
 /**
@@ -60,12 +64,18 @@ export class GoogleImagenProvider implements AIProviderAdapter {
     const { settings, pack_type } = requestPayload;
     const apiKey = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY;
 
+    // Detect model gender from settings or uploaded model reference info
+    let modelGender: 'male' | 'female' | 'unisex' = (settings as any).model_gender || 'male';
+    if (modelImageUrl || (requestPayload as any).modelName) {
+      modelGender = 'male'; // Lock to male when male model reference is uploaded
+    }
+
     const shotList = this.getShotListForPack(pack_type || 'SINGLE', settings);
     const outputs: Array<{ imageUrl: string; shotType: string; aspectRatio: string }> = [];
 
     for (let index = 0; index < shotList.length; index++) {
       const shot = shotList[index];
-      const prompt = buildFashionPrompt(settings, garmentImageUrls, shot.shotType);
+      const prompt = buildFashionPrompt(settings, garmentImageUrls, shot.shotType, modelGender);
 
       let generatedImageUrl = '';
 
@@ -91,9 +101,9 @@ export class GoogleImagenProvider implements AIProviderAdapter {
           }
 
           const endpointsToTry = [
-            // Gemini 2.0 Flash Multimodal / Image Generation
+            // Gemini 2.5 Flash Image Generation
             {
-              url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
+              url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
               body: {
                 contents: [
                   {
@@ -104,9 +114,36 @@ export class GoogleImagenProvider implements AIProviderAdapter {
                     ],
                   },
                 ],
-                generationConfig: {
-                  responseMimeType: 'image/jpeg',
-                },
+              },
+            },
+            // Gemini 3.1 Flash Image Generation
+            {
+              url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=${apiKey}`,
+              body: {
+                contents: [
+                  {
+                    parts: [
+                      {
+                        text: `Generate a high-resolution, photorealistic studio photoshoot image: ${prompt}`,
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+            // Gemini 3 Pro Image
+            {
+              url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent?key=${apiKey}`,
+              body: {
+                contents: [
+                  {
+                    parts: [
+                      {
+                        text: `Generate a high-resolution, photorealistic studio photoshoot image: ${prompt}`,
+                      },
+                    ],
+                  },
+                ],
               },
             },
             // Imagen 3 predict format
@@ -119,16 +156,6 @@ export class GoogleImagenProvider implements AIProviderAdapter {
                   aspectRatio: settings.aspect_ratio || '4:5',
                   outputMimeType: 'image/jpeg',
                 },
-              },
-            },
-            // Imagen 3 generateImages format
-            {
-              url: `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:generateImages?key=${apiKey}`,
-              body: {
-                prompt,
-                number_of_images: 1,
-                aspect_ratio: settings.aspect_ratio || '4:5',
-                output_mime_type: 'image/jpeg',
               },
             },
           ];
@@ -148,10 +175,12 @@ export class GoogleImagenProvider implements AIProviderAdapter {
 
             if (response.ok) {
               const data = await response.json();
+              const inlinePart = data?.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
               const base64Image =
                 data?.predictions?.[0]?.bytesBase64Encoded ||
                 data?.generatedImages?.[0]?.image?.imageBytes ||
-                data?.images?.[0]?.bytesBase64Encoded;
+                data?.images?.[0]?.bytesBase64Encoded ||
+                inlinePart?.inlineData?.data;
 
               if (base64Image) {
                 generatedImageUrl = `data:image/jpeg;base64,${base64Image}`;
