@@ -76,42 +76,69 @@ export class GoogleImagenProvider implements AIProviderAdapter {
           console.log(`[GoogleImagenProvider] Calling Google Imagen API with prompt: "${prompt.substring(0, 80)}..."`);
 
           const endpointsToTry = [
-            `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
-            `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-fast-generate-001:predict?key=${apiKey}`,
-          ];
-
-          for (const endpoint of endpointsToTry) {
-            console.log(`[GoogleImagenProvider] Trying endpoint: ${endpoint.split('?')[0]}`);
-            const response = await fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-goog-api-key': apiKey,
-              },
-              body: JSON.stringify({
+            {
+              url: `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
+              body: {
                 instances: [{ prompt }],
                 parameters: {
                   sampleCount: 1,
                   aspectRatio: settings.aspect_ratio || '4:5',
                   outputMimeType: 'image/jpeg',
                 },
-              }),
+              },
+            },
+            {
+              url: `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:generateImages?key=${apiKey}`,
+              body: {
+                prompt,
+                number_of_images: 1,
+                aspect_ratio: settings.aspect_ratio || '4:5',
+                output_mime_type: 'image/jpeg',
+              },
+            },
+            {
+              url: `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${apiKey}`,
+              body: {
+                instances: [{ prompt }],
+                parameters: {
+                  sampleCount: 1,
+                  aspectRatio: settings.aspect_ratio || '4:5',
+                  outputMimeType: 'image/jpeg',
+                },
+              },
+            },
+          ];
+
+          for (const item of endpointsToTry) {
+            console.log(`[GoogleImagenProvider] Trying endpoint: ${item.url.split('?')[0]}`);
+            const response = await fetch(item.url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': apiKey,
+              },
+              body: JSON.stringify(item.body),
             });
 
             console.log(`[GoogleImagenProvider] Response status: ${response.status} ${response.statusText}`);
 
             if (response.ok) {
               const data = await response.json();
-              if (data?.predictions?.[0]?.bytesBase64Encoded) {
-                generatedImageUrl = `data:image/jpeg;base64,${data.predictions[0].bytesBase64Encoded}`;
+              const base64Image =
+                data?.predictions?.[0]?.bytesBase64Encoded ||
+                data?.generatedImages?.[0]?.image?.imageBytes ||
+                data?.images?.[0]?.bytesBase64Encoded;
+
+              if (base64Image) {
+                generatedImageUrl = `data:image/jpeg;base64,${base64Image}`;
                 console.log('[GoogleImagenProvider] Successfully generated image from Google Imagen API!');
                 break;
               } else {
-                console.warn('[GoogleImagenProvider] Response OK but predictions field missing/empty:', JSON.stringify(data));
+                console.warn('[GoogleImagenProvider] Response OK but image bytes field missing:', JSON.stringify(data));
               }
             } else {
               const errorText = await response.text();
-              console.error(`[GoogleImagenProvider] Google Imagen API Error (${response.status}):`, errorText);
+              console.error(`[GoogleImagenProvider] API Error (${response.status}):`, errorText);
             }
           }
         } catch (err) {
