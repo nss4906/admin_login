@@ -75,7 +75,41 @@ export class GoogleImagenProvider implements AIProviderAdapter {
         try {
           console.log(`[GoogleImagenProvider] Calling Google Imagen API with prompt: "${prompt.substring(0, 80)}..."`);
 
+          // First, list available models for this key to find exact model name
+          try {
+            console.log('[GoogleImagenProvider] Listing available models for key...');
+            const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+            if (listRes.ok) {
+              const listData = await listRes.json();
+              const modelNames = (listData.models || []).map((m: any) => m.name);
+              console.log('[GoogleImagenProvider] Available models for this key:', modelNames.join(', '));
+            } else {
+              console.warn('[GoogleImagenProvider] Could not list models:', listRes.status, await listRes.text());
+            }
+          } catch (listErr) {
+            console.warn('[GoogleImagenProvider] Error listing models:', listErr);
+          }
+
           const endpointsToTry = [
+            // Gemini 2.0 Flash Multimodal / Image Generation
+            {
+              url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
+              body: {
+                contents: [
+                  {
+                    parts: [
+                      {
+                        text: `Generate a high-resolution, photorealistic studio photoshoot image: ${prompt}`,
+                      },
+                    ],
+                  },
+                ],
+                generationConfig: {
+                  responseMimeType: 'image/jpeg',
+                },
+              },
+            },
+            // Imagen 3 predict format
             {
               url: `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
               body: {
@@ -87,6 +121,7 @@ export class GoogleImagenProvider implements AIProviderAdapter {
                 },
               },
             },
+            // Imagen 3 generateImages format
             {
               url: `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:generateImages?key=${apiKey}`,
               body: {
@@ -94,17 +129,6 @@ export class GoogleImagenProvider implements AIProviderAdapter {
                 number_of_images: 1,
                 aspect_ratio: settings.aspect_ratio || '4:5',
                 output_mime_type: 'image/jpeg',
-              },
-            },
-            {
-              url: `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${apiKey}`,
-              body: {
-                instances: [{ prompt }],
-                parameters: {
-                  sampleCount: 1,
-                  aspectRatio: settings.aspect_ratio || '4:5',
-                  outputMimeType: 'image/jpeg',
-                },
               },
             },
           ];
