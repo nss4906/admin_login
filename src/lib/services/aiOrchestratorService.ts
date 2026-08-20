@@ -52,6 +52,32 @@ export function buildFashionPrompt(
  * Supports Google's official Imagen API when GOOGLE_AI_API_KEY / GEMINI_API_KEY is available,
  * and dynamic AI generation pipeline matching exact user input parameters.
  */
+/**
+ * Helper to convert HTTP/HTTPS URLs or Data URLs into Gemini multimodal inlineData object ({ mimeType, data }).
+ */
+async function urlToInlineData(url: string): Promise<{ mimeType: string; data: string } | null> {
+  if (!url) return null;
+  try {
+    if (url.startsWith('data:')) {
+      const matches = url.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        return { mimeType: matches[1], data: matches[2] };
+      }
+    } else if (url.startsWith('http://') || url.startsWith('https://')) {
+      const res = await fetch(url);
+      if (res.ok) {
+        const arrayBuf = await res.arrayBuffer();
+        const mimeType = res.headers.get('content-type') || 'image/jpeg';
+        const base64 = Buffer.from(arrayBuf).toString('base64');
+        return { mimeType, data: base64 };
+      }
+    }
+  } catch (err) {
+    console.warn('[urlToInlineData] Failed to fetch and convert image URL to inlineData:', err);
+  }
+  return null;
+}
+
 export class GoogleImagenProvider implements AIProviderAdapter {
   name = 'Google Imagen 3 / Gemini Flow Engine';
 
@@ -64,10 +90,30 @@ export class GoogleImagenProvider implements AIProviderAdapter {
     const { settings, pack_type } = requestPayload;
     const apiKey = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY;
 
-    // Detect model gender from settings or uploaded model reference info
+    // Detect model gender dynamically
     let modelGender: 'male' | 'female' | 'unisex' = (settings as any).model_gender || 'male';
-    if (modelImageUrl || (requestPayload as any).modelName) {
-      modelGender = 'male'; // Lock to male when male model reference is uploaded
+
+    // Convert model reference image and garment images to multimodal inlineData parts
+    const imageParts: Array<{ inlineData: { mimeType: string; data: string } }> = [];
+
+    if (modelImageUrl) {
+      console.log('[GoogleImagenProvider] Converting model reference image to multimodal part...');
+      const modelInline = await urlToInlineData(modelImageUrl);
+      if (modelInline) {
+        imageParts.push({ inlineData: modelInline });
+        console.log('[GoogleImagenProvider] Added model reference image part.');
+      }
+    }
+
+    if (garmentImageUrls && garmentImageUrls.length > 0) {
+      for (const garment of garmentImageUrls) {
+        console.log(`[GoogleImagenProvider] Converting ${garment.orientation} garment reference image to multimodal part...`);
+        const garmentInline = await urlToInlineData(garment.url);
+        if (garmentInline) {
+          imageParts.push({ inlineData: garmentInline });
+          console.log(`[GoogleImagenProvider] Added ${garment.orientation} garment reference image part.`);
+        }
+      }
     }
 
     const shotList = this.getShotListForPack(pack_type || 'SINGLE', settings);
@@ -100,51 +146,29 @@ export class GoogleImagenProvider implements AIProviderAdapter {
             console.warn('[GoogleImagenProvider] Error listing models:', listErr);
           }
 
+          const contentParts = [
+            ...imageParts,
+            {
+              text: `Generate a high-resolution, photorealistic fashion studio photoshoot image. Maintain the facial features, skin tone, and body structure of the provided model reference image, and dress the model in the exact garment shown in the apparel reference image: ${prompt}`,
+            },
+          ];
+
           const endpointsToTry = [
-            // Gemini 2.5 Flash Image Generation
             {
               url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
-              body: {
-                contents: [
-                  {
-                    parts: [
-                      {
-                        text: `Generate a high-resolution, photorealistic studio photoshoot image: ${prompt}`,
-                      },
-                    ],
-                  },
-                ],
-              },
+              body: { contents: [{ parts: contentParts }] },
             },
-            // Gemini 3.1 Flash Image Generation
             {
               url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=${apiKey}`,
-              body: {
-                contents: [
-                  {
-                    parts: [
-                      {
-                        text: `Generate a high-resolution, photorealistic studio photoshoot image: ${prompt}`,
-                      },
-                    ],
-                  },
-                ],
-              },
+              body: { contents: [{ parts: contentParts }] },
             },
-            // Gemini 3 Pro Image
             {
               url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent?key=${apiKey}`,
-              body: {
-                contents: [
-                  {
-                    parts: [
-                      {
-                        text: `Generate a high-resolution, photorealistic studio photoshoot image: ${prompt}`,
-                      },
-                    ],
-                  },
-                ],
-              },
+              body: { contents: [{ parts: contentParts }] },
+            },
+            {
+              url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+              body: { contents: [{ parts: contentParts }] },
             },
             // Imagen 3 predict format
             {
